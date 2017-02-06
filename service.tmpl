@@ -1,0 +1,66 @@
+  server {
+    listen 80 default;    
+
+    server_name {{.Env.SERVER_NAMES}};
+
+    # Endpoint used for performing domain verification with Let's Encrypt.
+    location /.well-known/acme-challenge/ {
+      content_by_lua_block {
+        auto_ssl:challenge_server()
+      }
+    }
+    
+    location / {
+      return 301 https://$server_name$request_uri;
+    }
+}
+
+server {
+  listen 443 ssl http2;
+
+  server_name {{.Env.SERVER_NAMES}};
+
+  set $service_a {{.Env.SERVICE_A}};
+  {{range $element := split (default .Env.SERVICE_A_PATH "^~ /") ";"}}   
+  location {{$element}} {        
+    proxy_pass       http://$service_a;
+    proxy_http_version 1.1;
+    proxy_buffering  off;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;    
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass_request_headers on;               
+    client_max_body_size 0;
+  }	   
+  {{end}}
+
+
+  set $service_b {{.Env.SERVICE_B}};
+  {{range $element := split (default .Env.SERVICE_B_PATH "^~ /") ";"}}   
+  location {{$element}} {        
+    proxy_pass       http://$service_b;
+    proxy_http_version 1.1;
+    proxy_buffering  off;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass_request_headers on;   
+    proxy_connect_timeout 90;
+    proxy_send_timeout 90;
+    proxy_read_timeout 90;    
+    client_max_body_size 0;
+  }	
+  {{end}}
+
+  # Dynamic handler for issuing or returning certs for SNI domains.
+  ssl_certificate /etc/ssl/resty-auto-ssl-fallback.crt;
+  ssl_certificate_key /etc/ssl/resty-auto-ssl-fallback.key;
+  
+  ssl_certificate_by_lua_block {
+    auto_ssl:ssl_certificate()
+  }
+}
